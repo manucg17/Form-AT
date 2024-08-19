@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Values Editor</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        .accordion-button:not(.collapsed) {
+            background-color: #ffffff;
+            color: #000;
+            border-color: #dcdcdc;
+        }
+        .accordion-button {
+            background-color: #c7dfb8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2>API Selected: {{ endpoint }}</h2>
+
+        <!-- Tabs Navigation -->
+        <ul class="nav nav-tabs" id="myTab" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="values-tab" data-bs-toggle="tab" data-bs-target="#values" type="button" role="tab" aria-controls="values" aria-selected="true">Values</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="json-fields-tab" data-bs-toggle="tab" data-bs-target="#json-fields" type="button" role="tab" aria-controls="json-fields" aria-selected="false">JSON Fields</button>
+            </li>
+        </ul>
+
+        <!-- Tabs Content -->
+        <div class="tab-content mt-3" id="myTabContent">
+            <!-- Values Tab -->
+            <div class="tab-pane fade show active" id="values" role="tabpanel" aria-labelledby="values-tab">
+                <form action="{{ url_for('submit_edits') }}" method="post" id="valuesForm" enctype="multipart/form-data">
+                    {% macro render_field(key, prop, prefix='') %}
+                    {% set full_key = (prefix + key).replace('.', '_').replace('[', '_').replace(']', '') %}
+                    <div class="mb-3">
+                        <label for="{{ full_key }}" class="form-label">{{ key }}</label>
+                        {% if key == 'filePath' %}
+                            <div class="input-group">
+                                <input type="file" class="form-control" id="fileUploadInput" name="fileUploadInput">
+                                <button type="button" class="btn btn-secondary ms-2" id="previewButton">Preview</button>
+                            </div>
+                        {% elif prop.type == 'integer' %}
+                            <input type="number" class="form-control" id="{{ full_key }}" name="{{ full_key }}" placeholder="Enter {{ key }}">
+                        {% elif prop.type == 'string' %}
+                            {% if prop.get('enum') %}
+                                <select class="form-select" id="{{ full_key }}" name="{{ full_key }}">
+                                    {% for option in prop['enum'] %}
+                                        <option value="{{ option }}">{{ option }}</option>
+                                    {% endfor %}
+                                </select>
+                            {% else %}
+                                <input type="text" class="form-control" id="{{ full_key }}" name="{{ full_key }}" placeholder="Enter {{ key }}">
+                            {% endif %}
+                        {% elif prop.type == 'boolean' %}
+                            <select class="form-select" id="{{ full_key }}" name="{{ full_key }}">
+                                <option value="true">True</option>
+                                <option value="false">False</option>
+                            </select>
+                        {% elif prop.type == 'object' %}
+                            <div class="accordion" id="accordion_{{ full_key }}">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="heading_{{ full_key }}">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_{{ full_key }}" aria-expanded="false" aria-controls="collapse_{{ full_key }}">
+                                            {{ key }}
+                                        </button>
+                                    </h2>
+                                    <div id="collapse_{{ full_key }}" class="accordion-collapse collapse" aria-labelledby="heading_{{ full_key }}" data-bs-parent="#accordion_{{ full_key }}">
+                                        <div class="accordion-body">
+                                            {% for subkey, subprop in prop.properties.items() %}
+                                                {{ render_field(subkey, subprop, full_key + '.') }}
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        {% elif prop.type == 'array' %}
+                            {% if prop.items.type == 'object' %}
+                                <div class="accordion" id="accordion_{{ full_key }}">
+                                    <div class="accordion-item">
+                                        <h2 class="accordion-header" id="heading_{{ full_key }}">
+                                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse_{{ full_key }}" aria-expanded="false" aria-controls="collapse_{{ full_key }}">
+                                                {{ key }} (Array of Objects)
+                                            </button>
+                                        </h2>
+                                        <div id="collapse_{{ full_key }}" class="accordion-collapse collapse" aria-labelledby="heading_{{ full_key }}" data-bs-parent="#accordion_{{ full_key }}">
+                                            <div class="accordion-body">
+                                                {% for subkey, subprop in prop.items.properties.items() %}
+                                                    {{ render_field(subkey, subprop, full_key + '[0].') }}
+                                                {% endfor %}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            {% else %}
+                                <textarea class="form-control" id="{{ full_key }}" name="{{ full_key }}" placeholder="Enter {{ key }}"></textarea>
+                            {% endif %}
+                        {% endif %}
+                    </div>
+                    {% endmacro %}
+
+                    {% for key, prop in schema['properties'].items() %}
+                        {{ render_field(key, prop) }}
+                    {% endfor %}
+                    <button type="submit" class="btn btn-primary mt-3">Submit Values</button>
+                </form>
+            </div>
+
+            <!-- JSON Fields Tab -->
+            <div class="tab-pane fade" id="json-fields" role="tabpanel" aria-labelledby="json-fields-tab">
+                <form action="{{ url_for('submit_edits') }}" method="post" id="jsonFieldsForm">
+                    <!-- JSON Editor for Direct Editing -->
+                    <textarea id="jsonEditor" name="jsonEditor" class="form-control" rows="15">{{ example_json }}</textarea>
+                    <button type="submit" class="btn btn-primary mt-3">Submit JSON</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Preview Modal -->
+    <div class="modal fade" id="filePreviewModal" tabindex="-1" aria-labelledby="filePreviewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="filePreviewModalLabel">File Preview</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="filePreviewContent">
+                    <!-- File content will be injected here -->
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ensure scripts are loaded after the DOM elements -->
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.min.js"></script>
+    <script>
+        let uploadedFile;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const fileUploadInput = document.getElementById('fileUploadInput');
+            const previewButton = document.getElementById('previewButton');
+
+            // Attach event listeners
+            fileUploadInput.addEventListener('change', handleFileUpload);
+            previewButton.addEventListener('click', previewFile);
+
+            // Function to handle file upload
+            function handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    uploadedFile = file; // Store the file for later preview
+                    console.log(`File uploaded: ${file.name} (${file.type})`); // Debug information
+                } else {
+                    console.log("No file uploaded."); // Debug information
+                }
+            }
+
+            // Function to preview the uploaded file
+            function previewFile() {
+                if (!uploadedFile) {
+                    alert("No file uploaded to preview.");
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const fileContent = e.target.result;
+
+                    // If the file is an image, display it as an image, otherwise as text
+                    const previewContainer = document.getElementById('filePreviewContent');
+                    previewContainer.innerHTML = ''; // Clear previous content
+                    if (uploadedFile.type.startsWith('image/')) {
+                        const img = document.createElement('img');
+                        img.src = fileContent;
+                        img.style.maxWidth = '100%';
+                        previewContainer.appendChild(img);
+                        console.log("Image preview generated."); // Debug information
+                    } else {
+                        const pre = document.createElement('pre');
+                        pre.textContent = "Preview not available for this file type.";
+                        previewContainer.appendChild(pre);
+                        console.log("Non-image file preview not available."); // Debug information
+                    }
+
+                    // Show the preview modal
+                    const previewModal = new bootstrap.Modal(document.getElementById('filePreviewModal'));
+                    previewModal.show();
+                };
+
+                reader.onerror = function() {
+                    console.error("File could not be read. Please try again."); // Error handling
+                };
+
+                // Read the file content
+                if (uploadedFile.type.startsWith('image/')) {
+                    reader.readAsDataURL(uploadedFile); // Read as Data URL for images
+                } else {
+                    alert("Preview not supported for this file type.");
+                }
+            }
+        });
+    </script>
+</body>
+</html>
